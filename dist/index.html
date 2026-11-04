@@ -16,14 +16,14 @@
     <aside class="sidebar">
       <div class="brand"><div class="brand-mark">₫</div><div><strong>Chia tiền nhậu</strong><small>nhẹ nhàng, rõ ràng</small></div></div>
       <nav class="side-nav" aria-label="Điều hướng">
-        <button class="nav-btn active" data-view="today"><span class="nav-icon">◷</span><span>Trong ngày</span></button>
+        <button class="nav-btn active" data-view="today"><span class="nav-icon">◷</span><span>Trong tuần</span></button>
         <button class="nav-btn" data-view="history"><span class="nav-icon">▤</span><span>Lịch sử</span></button>
       </nav>
       <div class="side-tip"><strong>Mẹo nhỏ</strong>Mỗi bữa là một hóa đơn riêng. Nhập đủ người tham gia để hệ thống tự chia đều và tổng hợp chính xác.</div>
     </aside>
     <main class="main">
       <div class="topbar">
-        <div><p class="eyebrow">Bảng chia tiền</p><h1 id="pageTitle">Hôm nay ăn gì?</h1><p id="pageSubtitle">Quản lý các bữa trong ngày, ai trả bao nhiêu nhìn là hiểu.</p></div>
+        <div><p class="eyebrow">Bảng chia tiền</p><h1 id="pageTitle">Các bữa trong tuần</h1><p id="pageSubtitle">Mọi người cùng xem được các bữa và tổng tiền đã ghi nhận.</p></div>
         <div class="top-actions"><label class="date-chip">📅 <input id="datePicker" type="date" /></label><div class="auth-zone" id="authZone"><button class="btn login-btn" id="loginBtn">G&nbsp;&nbsp;Đăng nhập</button><div class="user-menu hidden" id="userMenu"><div class="user-info"><strong id="userName"></strong><small id="userRole"></small></div><button class="logout-btn" id="logoutBtn">Thoát</button></div></div></div>
       </div>
       <div id="alert" class="alert"></div>
@@ -31,11 +31,11 @@
         <div class="stat"><div class="stat-label">Tổng trong ngày</div><div class="stat-value" id="statTotal">0 <small>đ</small></div></div>
         <div class="stat"><div class="stat-label">Số bữa</div><div class="stat-value" id="statMeals">0 <small>bữa</small></div></div>
         <div class="stat"><div class="stat-label">Số người</div><div class="stat-value" id="statPeople">0 <small>người</small></div></div>
-        <div class="stat"><div class="stat-label">Đã thanh toán</div><div class="stat-value" id="statPaid">0 <small>%</small></div></div>
+        <div class="stat"><div class="stat-label">Đã thanh toán</div><div class="stat-value" id="statPaid">0 <small>đ</small></div></div>
       </section>
       <div class="layout">
         <section class="panel">
-          <div class="panel-head"><div><div class="panel-title" id="mealPanelTitle">Các bữa hôm nay</div><div class="panel-sub">Mỗi bữa có thể có nhóm người khác nhau</div></div><div class="section-actions"><button class="btn btn-lime" id="addMealBtn">＋ Thêm bữa</button></div></div>
+          <div class="panel-head"><div><div class="panel-title" id="mealPanelTitle">Các bữa trong tuần</div><div class="panel-sub">Mỗi bữa có thể có nhóm người khác nhau</div></div><div class="section-actions"><button class="btn btn-lime" id="addMealBtn">＋ Thêm bữa</button></div></div>
           <div class="meal-list" id="mealList"></div>
         </section>
         <div class="right-col">
@@ -54,14 +54,14 @@
   <script type="module">
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
     import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
-    import { getFirestore, collection, addDoc, doc, updateDoc, deleteDoc, onSnapshot, query, orderBy } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+    import { getFirestore, collection, addDoc, doc, updateDoc, deleteDoc, getDoc, onSnapshot, query, orderBy } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
     const firebaseConfig = { apiKey:'AIzaSyCuEV2UUi6y5BztxDDVy_KLJpLg4Yj8drU', authDomain:'along-6e1ce.firebaseapp.com', projectId:'along-6e1ce', storageBucket:'along-6e1ce.firebasestorage.app', messagingSenderId:'455552561603', appId:'1:455552561603:web:524eeb684fb0ec183d8d76', measurementId:'G-8KYBXCKEW6' };
     const money = n => new Intl.NumberFormat('vi-VN').format(Math.round(Number(n)||0));
     const dateKey = d => { const x=d||new Date(); return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh'}).format(x); };
     const today = dateKey();
     const ROOT_EMAIL='minhln.dhhp@gmail.com';
-    const state = { meals:[], selectedDate:today, view:'today', activePaidId:null, firebase:false, authUser:null, unsubscribe:null };
+    const state = { meals:[], selectedDate:today, view:'today', activePaidId:null, firebase:false, authUser:null, permissions:[], unsubscribe:null };
     const $ = s => document.querySelector(s); const $$ = s => [...document.querySelectorAll(s)];
     $('#datePicker').value=today;
 
@@ -73,27 +73,30 @@
     function saveLocal(){localStorage.setItem('chia-tien-nhau-meals',JSON.stringify(state.meals))}
     function loadLocal(){try{return JSON.parse(localStorage.getItem('chia-tien-nhau-meals')||'[]')}catch{return[]}}
     function normalize(data,id){return {id,...data,people:Array.isArray(data.people)?data.people:[],paid:Array.isArray(data.paid)?data.paid:[],status:data.status||'open'}}
-    function getVisible(){return state.meals.filter(m=>m.date===state.selectedDate).sort((a,b)=>(a.time||'').localeCompare(b.time||''))}
+    function weekBounds(key){const d=new Date(key+'T12:00:00');const day=(d.getDay()+6)%7;const start=new Date(d);start.setDate(d.getDate()-day);const end=new Date(start);end.setDate(start.getDate()+6);return {startKey:dateKey(start),endKey:dateKey(end)}}
+    function getVisible(){const range=weekBounds(state.selectedDate);return state.meals.filter(m=>m.date>=range.startKey&&m.date<=range.endKey).sort((a,b)=>a.date.localeCompare(b.date)||(a.time||'').localeCompare(b.time||''))}
     function uniquePeople(meals){return [...new Set(meals.flatMap(m=>m.people))].sort((a,b)=>a.localeCompare(b,'vi'))}
     function sum(){return getVisible().reduce((a,m)=>a+Number(m.amount||0),0)}
+    function paidTotal(meals){return meals.reduce((a,m)=>a+split(m)*m.paid.length,0)}
+    function can(permission){return !!state.authUser&&(state.authUser.email?.toLowerCase()===ROOT_EMAIL||state.permissions.includes(permission))}
     function split(m){return m.people.length?Number(m.amount||0)/m.people.length:0}
 
     function render(){
-      const meals=getVisible(), people=uniquePeople(meals), total=sum(), paidCount=meals.reduce((a,m)=>a+m.paid.length,0), slots=meals.reduce((a,m)=>a+m.people.length,0);
-      $('#pageTitle').textContent=state.view==='history'?'Lịch sử các bữa':(state.selectedDate===today?'Hôm nay ăn gì?':`Ngày ${formatDate(state.selectedDate)}`);
-      $('#pageSubtitle').textContent=state.view==='history'?'Tất cả hóa đơn đã ghi nhận, xem lại bất cứ lúc nào.':'Quản lý các bữa trong ngày, ai trả bao nhiêu nhìn là hiểu.';
-      $('#mealPanelTitle').textContent=state.view==='history'?'Tất cả các bữa':`Các bữa ngày ${formatDate(state.selectedDate)}`;
+      const meals=getVisible(), people=uniquePeople(meals), total=sum(), range=weekBounds(state.selectedDate);
+      $('#pageTitle').textContent=state.view==='history'?'Lịch sử các bữa':`Tuần ${formatDate(range.startKey)} – ${formatDate(range.endKey)}`;
+      $('#pageSubtitle').textContent=state.view==='history'?'Tất cả hóa đơn đã ghi nhận, xem lại bất cứ lúc nào.':'Mọi người cùng xem được các bữa và tổng tiền đã ghi nhận.';
+      $('#mealPanelTitle').textContent=state.view==='history'?'Tất cả các bữa':`Các bữa trong tuần ${formatDate(range.startKey)} – ${formatDate(range.endKey)}`;
       $('#statTotal').innerHTML=`${money(state.view==='history'?state.meals.reduce((a,m)=>a+Number(m.amount||0),0):total)} <small>đ</small>`;
       $('#statMeals').innerHTML=`${state.view==='history'?state.meals.length:meals.length} <small>bữa</small>`;
       $('#statPeople').innerHTML=`${state.view==='history'?uniquePeople(state.meals).length:people.length} <small>người</small>`;
-      $('#statPaid').innerHTML=`${slots?Math.round(paidCount/slots*100):0} <small>%</small>`;
+      $('#statPaid').innerHTML=`${money(state.view==='history'?paidTotal(state.meals):paidTotal(meals))} <small>đ</small>`;
       renderMeals(state.view==='history'?state.meals.slice().sort((a,b)=>b.date.localeCompare(a.date)):meals);
-      renderSummary(state.view==='history'?[]:meals,people);
+      renderSummary(state.view==='history'?state.meals:meals, state.view==='history'?uniquePeople(state.meals):people);
       renderRecent();
     }
     function renderMeals(meals){
-      const el=$('#mealList'); if(!meals.length){el.innerHTML=`<div class="empty"><div class="empty-icon">🍻</div><strong>Chưa có bữa nào</strong><div style="margin-top:6px">Tạo hóa đơn đầu tiên để bắt đầu chia tiền.</div><button class="btn btn-primary" style="margin-top:15px" id="emptyAdd">＋ Tạo bữa mới</button></div>`;$('#emptyAdd')?.addEventListener('click',()=>openMeal());return}
-      el.innerHTML=meals.map(m=>{const pc=m.people.length?Math.round(Number(m.amount||0)/m.people.length):0;return `<article class="meal-card"><div class="meal-main"><div class="meal-title-row"><span class="meal-name">${esc(m.name||'Bữa chưa đặt tên')}</span><span class="badge ${m.status==='closed'?'closed':'open'}">${m.status==='closed'?'Đã chốt':'Đang mở'}</span></div><div class="meal-meta"><span>◷ ${m.date?formatDate(m.date):''}${fmtTime(m.time)}</span><span>👥 ${m.people.length} người</span>${m.note?`<span>· ${esc(m.note)}</span>`:''}</div></div><div><div class="meal-amount">${money(m.amount)} đ</div><div class="meal-per">${money(pc)} đ / người</div></div><div class="meal-actions"><button class="btn btn-ghost" data-paid="${m.id}">✓ Thanh toán</button>${m.status!=='closed'?`<button class="btn btn-ghost" data-edit="${m.id}">Sửa</button>`:''}<button class="btn ${m.status==='closed'?'btn-lime':'btn-primary'}" data-closemeal="${m.id}">${m.status==='closed'?'Đã chốt':'Chốt bữa'}</button>${m.status!=='closed'?`<button class="btn btn-danger" data-delete="${m.id}">Xóa</button>`:''}</div></article>`}).join('');
+      const el=$('#mealList'); if(!meals.length){el.innerHTML=`<div class="empty"><div class="empty-icon">🍻</div><strong>Chưa có bữa nào trong tuần này</strong><div style="margin-top:6px">Tạo hóa đơn đầu tiên để bắt đầu chia tiền.</div><button class="btn btn-primary" style="margin-top:15px" id="emptyAdd">＋ Tạo bữa mới</button></div>`;$('#emptyAdd')?.addEventListener('click',()=>can('meal.create')?openMeal():notice('Bạn đang ở chế độ xem. Hãy đăng nhập tài khoản có quyền tạo bữa.','warn'));return}
+      el.innerHTML=meals.map(m=>{const pc=m.people.length?Math.round(Number(m.amount||0)/m.people.length):0;const canUpdate=can('meal.update');const canDelete=can('meal.delete');const actions=canUpdate?`<button class="btn btn-ghost" data-paid="${m.id}">✓ Thanh toán</button>${m.status!=='closed'?`<button class="btn btn-ghost" data-edit="${m.id}">Sửa</button>`:''}<button class="btn ${m.status==='closed'?'btn-lime':'btn-primary'}" data-closemeal="${m.id}">${m.status==='closed'?'Đã chốt':'Chốt bữa'}</button>`:'<span class="note">Chỉ xem</span>';return `<article class="meal-card"><div class="meal-main"><div class="meal-title-row"><span class="meal-name">${esc(m.name||'Bữa chưa đặt tên')}</span><span class="badge ${m.status==='closed'?'closed':'open'}">${m.status==='closed'?'Đã chốt':'Đang mở'}</span></div><div class="meal-meta"><span>◷ ${m.date?formatDate(m.date):''}${fmtTime(m.time)}</span><span>👥 ${m.people.length} người</span>${m.note?`<span>· ${esc(m.note)}</span>`:''}</div></div><div><div class="meal-amount">${money(m.amount)} đ</div><div class="meal-per">${money(pc)} đ / người</div></div><div class="meal-actions">${actions}${canDelete&&m.status!=='closed'?`<button class="btn btn-danger" data-delete="${m.id}">Xóa</button>`:''}</div></article>`}).join('');
       el.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openMeal(b.dataset.edit));el.querySelectorAll('[data-paid]').forEach(b=>b.onclick=()=>openPaid(b.dataset.paid));el.querySelectorAll('[data-closemeal]').forEach(b=>b.onclick=()=>toggleClose(b.dataset.closemeal));el.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>removeMeal(b.dataset.delete));
     }
     function renderSummary(meals,people){const wrap=$('#summaryWrap'); if(!meals.length){wrap.innerHTML=`<div class="empty">Chọn một ngày để xem bảng tổng hợp theo người.</div>`;return}const heads=meals.map(m=>`<th>${esc(m.name||'Bữa')}<br><span style="font-weight:500">${money(m.amount)} đ</span></th>`).join('');const rows=people.map(p=>{let total=0;const cells=meals.map(m=>{const v=m.people.includes(p)?split(m):0;total+=v;const paid=m.paid.includes(p);return `<td>${v?`${paid?'<span class="paid-dot"></span>':''}${money(v)}`:'—'}</td>`}).join('');return `<tr><td class="person-name">${esc(p)}</td>${cells}<td class="owed">${money(total)} đ</td></tr>`}).join('');const foot=meals.map(m=>`<td>${money(m.amount)} đ</td>`).join('');wrap.innerHTML=`<table class="summary-table"><thead><tr><th>Tên</th>${heads}<th>Tổng phải trả</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td>Tổng</td>${foot}<td>${money(meals.reduce((a,m)=>a+Number(m.amount||0),0))} đ</td></tr></tfoot></table>`}
@@ -103,7 +106,8 @@
     function openMeal(id=null){$('#mealModal').classList.add('open');$('#editingId').value=id||'';$('#modalTitle').textContent=id?'Sửa thông tin bữa':'Tạo bữa mới';$('#personInputs').innerHTML='';if(id){const m=state.meals.find(x=>x.id===id);$('#mealName').value=m.name||'';$('#mealAmount').value=m.amount||'';$('#mealDate').value=m.date||state.selectedDate;$('#mealTime').value=m.time||'';$('#mealNote').value=m.note||'';m.people.forEach(personRow)}else{$('#mealForm').reset();$('#mealDate').value=state.selectedDate;$('#mealTime').value=new Date().toTimeString().slice(0,5);personRow();personRow()}}
     function closeModals(){$$('.modal-backdrop').forEach(x=>x.classList.remove('open'))}
     function openPaid(id){const m=state.meals.find(x=>x.id===id);if(!m)return;state.activePaidId=id;$('#paidList').innerHTML=m.people.map(p=>`<label class="check-row"><input type="checkbox" value="${esc(p)}" ${m.paid.includes(p)?'checked':''}><span>${esc(p)}</span><span class="note">${money(split(m))} đ</span></label>`).join('');$('#paidModal').classList.add('open')}
-    function updateAuthUI(user){$('#loginBtn').classList.toggle('hidden',!!user);$('#userMenu').classList.toggle('hidden',!user);if(user){$('#userName').textContent=user.displayName||user.email||'Tài khoản Google';$('#userRole').textContent=user.email?.toLowerCase()===ROOT_EMAIL?'Root Admin':'Tài khoản đã đăng nhập'}}
+    function updateAuthUI(user){$('#loginBtn').classList.toggle('hidden',!!user);$('#userMenu').classList.toggle('hidden',!user);if(user){$('#userName').textContent=user.displayName||user.email||'Tài khoản Google';$('#userRole').textContent=user.email?.toLowerCase()===ROOT_EMAIL?'Root Admin':state.permissions.length?'Có quyền thao tác':'Chỉ xem dữ liệu'}}
+    async function loadPermissions(user){if(!user||user.email?.toLowerCase()===ROOT_EMAIL)return [];try{const snap=await getDoc(doc(window.db,'userAuthorizations',user.uid));return snap.exists()&&Array.isArray(snap.data().permissions)?snap.data().permissions:[]}catch(e){return []}}
     async function login(){try{await signInWithPopup(window.auth,new GoogleAuthProvider())}catch(e){const msg=e.code==='auth/unauthorized-domain'?'Domain của Site chưa có trong Firebase Authentication > Settings > Authorized domains.':e.code==='auth/popup-closed-by-user'?'Đã đóng cửa sổ đăng nhập.':'Đăng nhập Google chưa thành công, hãy thử lại.';notice(msg,'warn')}}
     async function logout(){try{await signOut(window.auth)}catch(e){notice('Chưa thể đăng xuất.','warn')}}
     function stopMealStream(){if(state.unsubscribe){state.unsubscribe();state.unsubscribe=null}}
@@ -114,9 +118,9 @@
     async function toggleClose(id){const m=state.meals.find(x=>x.id===id);if(!m)return;const next=m.status==='closed'?'open':'closed';try{await persistUpdate(id,{status:next,updatedAt:Date.now()});toast(next==='closed'?'Đã chốt bữa':'Đã mở lại bữa')}catch(e){notice('Không thể cập nhật bữa. Kiểm tra quyền Firestore.','warn')}}
     $('#mealForm').onsubmit=async e=>{e.preventDefault();if(!state.authUser){notice('Hãy đăng nhập Google trước khi lưu dữ liệu.','warn');return}const people=$$('.person').map(x=>x.value.trim()).filter(Boolean);if(new Set(people).size!==people.length){notice('Tên người tham gia không được trùng nhau.','warn');return}const editing=$('#editingId').value;const data={date:$('#mealDate').value||state.selectedDate,name:$('#mealName').value.trim(),amount:Number($('#mealAmount').value||0),time:$('#mealTime').value,note:$('#mealNote').value.trim(),people,paid:editing?(state.meals.find(m=>m.id===editing)?.paid||[]).filter(p=>people.includes(p)):[],status:editing?(state.meals.find(m=>m.id===editing)?.status||'open'):'open',updatedAt:Date.now()};try{if(editing)await persistUpdate(editing,data);else await persistCreate(data);closeModals();toast(editing?'Đã cập nhật bữa':'Đã thêm bữa mới')}catch(err){notice('Chưa lưu được. Hãy kiểm tra quyền Firebase của tài khoản.','warn')}};
     $('#paidForm').onsubmit=async e=>{e.preventDefault();const paid=$$('#paidList input:checked').map(x=>x.value);try{await persistUpdate(state.activePaidId,{paid,updatedAt:Date.now()});closeModals();toast('Đã cập nhật thanh toán')}catch(err){notice('Chưa cập nhật được. Hãy kiểm tra Firestore Rules.','warn')}};
-    $('#addMealBtn').onclick=()=>state.authUser?openMeal():notice('Hãy đăng nhập Google trước khi tạo bữa.','warn');$('#loginBtn').onclick=login;$('#logoutBtn').onclick=logout;$('#addPersonBtn').onclick=()=>personRow();$$('[data-close]').forEach(b=>b.onclick=closeModals);$('#datePicker').onchange=e=>{state.selectedDate=e.target.value;state.view='today';$$('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.view==='today'));render()};$$('.nav-btn').forEach(b=>b.onclick=()=>{state.view=b.dataset.view;$$('.nav-btn').forEach(x=>x.classList.toggle('active',x===b));render()});
+    $('#addMealBtn').onclick=()=>can('meal.create')?openMeal():notice('Bạn đang ở chế độ xem. Hãy đăng nhập tài khoản có quyền tạo bữa.','warn');$('#loginBtn').onclick=login;$('#logoutBtn').onclick=logout;$('#addPersonBtn').onclick=()=>personRow();$$('[data-close]').forEach(b=>b.onclick=closeModals);$('#datePicker').onchange=e=>{state.selectedDate=e.target.value;state.view='today';$$('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.view==='today'));render()};$$('.nav-btn').forEach(b=>b.onclick=()=>{state.view=b.dataset.view;$$('.nav-btn').forEach(x=>x.classList.toggle('active',x===b));render()});
     window.addEventListener('keydown',e=>{if(e.key==='Escape')closeModals()});
-    async function boot(){state.meals=[];render();try{const app=initializeApp(firebaseConfig);window.db=getFirestore(app);window.auth=getAuth(app);state.firebase=true;onAuthStateChanged(window.auth,user=>{state.authUser=user;updateAuthUI(user);if(user){startMealStream()}else{stopMealStream();state.meals=[];render()}})}catch(e){notice('Không thể khởi tạo Firebase.','warn')}}
+    async function boot(){state.meals=[];render();try{const app=initializeApp(firebaseConfig);window.db=getFirestore(app);window.auth=getAuth(app);state.firebase=true;startMealStream();onAuthStateChanged(window.auth,async user=>{state.authUser=user;state.permissions=await loadPermissions(user);updateAuthUI(user);render()})}catch(e){notice('Không thể khởi tạo Firebase.','warn')}}
     boot();
   </script>
 </body>
